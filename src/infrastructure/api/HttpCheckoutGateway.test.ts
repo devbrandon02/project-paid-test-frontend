@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { formatCop, HttpCheckoutGateway } from './HttpCheckoutGateway'
+import { HttpCheckoutGateway } from './HttpCheckoutGateway'
+import { formatCop } from '../../presentation/formatters/formatCop'
 
 const product = {
   id: 'p-1',
