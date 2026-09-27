@@ -58,21 +58,19 @@ function ProductCard({ product, onBuy }: { product: Product; onBuy: (id: string)
     <article className="product-card card">
       <div className="product-card__image-wrap">
         <img className="product-card__image" src={product.imageUrl} alt={product.name} loading="lazy" />
-        <span className={product.stock > 0 ? 'stock-pill badge' : 'stock-pill badge stock-pill--empty'}>
-          <span className="stock-pill__dot" />{product.stock > 0 ? `${product.stock} disponibles` : 'Agotado'}
-        </span>
       </div>
       <div className="product-card__content">
-        <p className="eyebrow">DISEÑO PARA DISFRUTAR</p>
         <h2>{product.name}</h2>
         <p className="product-card__description">{product.description}</p>
         <div className="product-card__bottom">
-          <div>
-            <span className="price-caption">Precio</span>
+          <div className="product-card__meta">
             <p className="product-price">{formatCop(product.price)}</p>
+            <span className={product.stock > 0 ? 'stock-label' : 'stock-label stock-label--empty'}>
+              {product.stock > 0 ? `${product.stock} disponibles` : 'Agotado'}
+            </span>
           </div>
           <button className="button btn btn-primary button--primary" type="button" onClick={() => onBuy(product.id)} disabled={product.stock <= 0}>
-            <CreditCard size={17} /> Comprar
+            Pagar con tarjeta
           </button>
         </div>
       </div>
@@ -155,12 +153,12 @@ function DetailsDialog({
       <section className="dialog" role="dialog" aria-modal="true" aria-labelledby="details-title">
         <div className="dialog__top">
           <div>
-            <p className="eyebrow">PAGO SEGURO · PASO 2 DE 3</p>
-            <h2 id="details-title">¿A dónde lo enviamos?</h2>
+            <p className="eyebrow">PASO 2 DE 3</p>
+            <h2 id="details-title">Datos de compra</h2>
           </div>
           <button className="icon-button" type="button" aria-label="Cerrar" onClick={onClose}><X size={20} /></button>
         </div>
-        <p className="dialog__intro">Completa tus datos de entrega y tarjeta para revisar el pedido.</p>
+        <p className="dialog__intro">Ingresa los datos de entrega y de la tarjeta.</p>
         <form onSubmit={submit} noValidate>
           <div className="form-section">
             <h3><MapPin size={16} /> Datos de entrega</h3>
@@ -212,7 +210,6 @@ function SummaryPanel({ product, onBack, onPay, busy, error }: {
       <section className="summary-card" aria-labelledby="summary-title">
         <div className="summary-card__header">
           <div><p className="eyebrow">PASO 3 DE 3</p><h2 id="summary-title">Resumen de compra</h2></div>
-          <span className="secure-badge"><ShieldCheck size={15} /> Pago protegido</span>
         </div>
         <div className="summary-product">
           <img src={product.imageUrl} alt="" />
@@ -315,32 +312,18 @@ export function CheckoutExperience() {
   }
 
   if (step === 'result' && transaction) {
-    return <div className="app-shell"><Header /><Stepper step={step} /><PaymentResult status={transaction.status} reference={transaction.reference || transaction.id} onContinue={returnToCatalog} /><Footer /></div>
+    return <div className="app-shell"><Header /><Stepper step={step} /><PaymentResult status={transaction.status} reference={transaction.reference || transaction.id} onContinue={returnToCatalog} /></div>
   }
 
   return (
     <div className="app-shell">
       <Header />
+      <Stepper step={step} />
       <main>
-        <section className="hero">
-          <div className="hero__copy">
-            <p className="eyebrow">OBJETOS PARA TU DÍA A DÍA</p>
-            <h1>Pequeños detalles.<br /><span>Grandes momentos.</span></h1>
-            <p className="hero__description">Tecnología seleccionada para acompañarte, en casa y donde estés.</p>
-            <a className="hero__link" href="#productos">Descubrir productos <ArrowRight size={16} /></a>
-          </div>
-          <div className="hero__art" aria-hidden="true">
-            <div className="hero__sun" />
-            <div className="hero__shape hero__shape--one" />
-            <div className="hero__shape hero__shape--two" />
-            <div className="hero__label">OBJETOS<br />CON INTENCIÓN</div>
-          </div>
-        </section>
-
-        <section className="catalog-section" id="productos">
+        <section className="catalog-section" id="productos" aria-labelledby="catalog-title">
           <div className="section-heading">
-            <div><p className="eyebrow">LA COLECCIÓN</p><h2>Encuentra tu próximo favorito</h2></div>
-            <span className="collection-count">{products.length.toString().padStart(2, '0')} artículos</span>
+            <div><h1 id="catalog-title">Productos</h1><p>Elige un producto para continuar con tu compra.</p></div>
+            <span className="collection-count">{products.length} productos</span>
           </div>
           {loadingProducts && products.length === 0 ? (
             <div className="loading-state"><span className="spinner spinner--dark" /><span>Cargando productos</span></div>
@@ -353,13 +336,7 @@ export function CheckoutExperience() {
           )}
         </section>
 
-        <section className="promise-strip" aria-label="Beneficios de compra">
-          <div><Truck size={19} /><span>Envío con seguimiento</span></div>
-          <div><ShieldCheck size={19} /><span>Pago protegido</span></div>
-          <div><PackageCheck size={19} /><span>Stock en tiempo real</span></div>
-        </section>
       </main>
-      <Footer />
       {step === 'details' && selectedProduct && <DetailsDialog values={formValues} onChange={changeForm} onContinue={continueToSummary} onClose={closeDialog} />}
       {step === 'summary' && selectedProduct && <SummaryPanel product={selectedProduct} onBack={() => dispatch(goToStep('details'))} onPay={() => void makePayment()} busy={submittingOrder} error={error} />}
       {step === 'details' && !selectedProduct && <div className="toast-error" role="alert">El producto ya no está disponible. <button type="button" onClick={closeDialog}>Cerrar</button></div>}
@@ -376,21 +353,8 @@ function Header() {
   return (
     <header className="site-header">
       <button className="brand" type="button" onClick={openCatalog} aria-label="Ir al inicio">
-        <span className="brand__mark">w</span><span>womp<span className="brand__period">.</span></span>
+        <span>womp</span>
       </button>
-      <nav className="header-nav" aria-label="Navegación principal">
-        <a href="#productos">Tienda</a><a href="#beneficios">Nuestra promesa</a>
-      </nav>
-      <span className="header-secure"><LockKeyhole size={14} /> Compra segura</span>
     </header>
-  )
-}
-
-function Footer() {
-  return (
-    <footer className="site-footer" id="beneficios">
-      <span>Compra tranquila. Recibe en casa.</span>
-      <span>© 2026 womp test</span>
-    </footer>
   )
 }
