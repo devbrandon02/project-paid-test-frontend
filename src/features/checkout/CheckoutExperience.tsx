@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
-import { ArrowLeft, ArrowRight, Check, CreditCard, LockKeyhole, MapPin, PackageCheck, ShieldCheck, ShoppingBag, Truck, X } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Check, LockKeyhole, ShoppingBag, X } from 'lucide-react'
 import { useAppDispatch, useAppSelector } from '../../app/hooks'
 import { clearError, goToStep, loadProducts, resetCheckout, selectProduct, submitOrder } from './checkoutSlice'
 import { checkoutSchema } from '../../application/validation/checkoutSchema'
 import type { CheckoutFormValues } from '../../application/validation/checkoutSchema'
-import type { CheckoutStep, Product } from '../../domain/checkout'
-import { formatCop } from '../../infrastructure/api/HttpCheckoutGateway'
+import type { CheckoutStep, Product, Transaction } from '../../domain/checkout'
+import { detectCardBrand } from '../../domain/paymentCard'
+import { formatCop } from '../../presentation/formatters/formatCop'
 import './checkout.css'
 
 const baseFee = 200000
@@ -30,15 +31,8 @@ function formatCardNumber(value: string) {
   return digitsOnly(value).slice(0, 19).replace(/(.{4})/g, '$1 ').trim()
 }
 
-function cardBrand(value: string) {
-  const digits = digitsOnly(value)
-  if (/^4/.test(digits)) return 'VISA'
-  if (/^(5[1-5]|2[2-7])/.test(digits)) return 'MASTERCARD'
-  return 'TARJETA'
-}
-
 function Stepper({ step }: { step: CheckoutStep }) {
-  const current = step === 'catalog' || step === 'result' ? 1 : step === 'details' ? 2 : 3
+  const current = step === 'catalog' ? 1 : step === 'details' ? 2 : 3
   const labels = ['Producto', 'Datos', 'Pago']
   return (
     <ol className="stepper" aria-label="Progreso de compra">
@@ -69,7 +63,7 @@ function ProductCard({ product, onBuy }: { product: Product; onBuy: (id: string)
               {product.stock > 0 ? `${product.stock} disponibles` : 'Agotado'}
             </span>
           </div>
-          <button className="button btn btn-primary button--primary" type="button" onClick={() => onBuy(product.id)} disabled={product.stock <= 0}>
+          <button className="btn btn-primary !text-white hover:!bg-[#285643] active:!bg-[#214634] w-full" type="button" onClick={() => onBuy(product.id)} disabled={product.stock <= 0}>
             Pagar con tarjeta
           </button>
         </div>
@@ -78,12 +72,13 @@ function ProductCard({ product, onBuy }: { product: Product; onBuy: (id: string)
   )
 }
 
-function Field({ label, name, value, onChange, error, ...props }: {
+function Field({ label, name, value, onChange, error, wide, ...props }: {
   label: string
   name: keyof CheckoutFormValues
   value: string | number
   onChange: (name: keyof CheckoutFormValues, value: string | number) => void
   error?: string
+  wide?: boolean
   type?: string
   placeholder?: string
   autoComplete?: string
@@ -92,10 +87,10 @@ function Field({ label, name, value, onChange, error, ...props }: {
   required?: boolean
 }) {
   return (
-    <label className="field">
-      <span className="field__label">{label}</span>
+    <label className={wide ? 'fieldset col-span-full gap-1' : 'fieldset gap-1'}>
+      <span className="fieldset-legend p-0 text-xs font-medium text-base-content/80">{label}</span>
       <input
-      className="input input-bordered"
+        className={`input input-bordered w-full ${error ? 'input-error' : ''}`}
         name={name}
         value={value || ''}
         onChange={(event) => onChange(name, event.target.value)}
@@ -103,7 +98,7 @@ function Field({ label, name, value, onChange, error, ...props }: {
         aria-describedby={error ? `${name}-error` : undefined}
         {...props}
       />
-      {error && <span className="field__error" id={`${name}-error`}>{error}</span>}
+      {error && <span className="text-xs text-error" id={`${name}-error`}>{error}</span>}
     </label>
   )
 }
@@ -120,6 +115,7 @@ function DetailsDialog({
   onClose: () => void
 }) {
   const [errors, setErrors] = useState<Partial<Record<keyof CheckoutFormValues, string>>>({})
+  const cardBrand = detectCardBrand(values.cardNumber)
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -149,49 +145,60 @@ function DetailsDialog({
   }
 
   return (
-    <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
-      <section className="dialog" role="dialog" aria-modal="true" aria-labelledby="details-title">
-        <div className="dialog__top">
+    <div className="modal modal-open items-end p-0 sm:items-center sm:p-4" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
+      <section className="modal-box max-h-[95dvh] w-full max-w-2xl overflow-y-auto rounded-t-2xl bg-base-100 p-5 shadow-xl sm:rounded-lg sm:p-7" role="dialog" aria-modal="true" aria-labelledby="details-title">
+        <div className="mb-2 flex items-start justify-between gap-4">
           <div>
-            <p className="eyebrow">PASO 2 DE 3</p>
-            <h2 id="details-title">Datos de compra</h2>
+            <h2 className="font-display text-xl font-semibold tracking-tight sm:text-2xl" id="details-title">Entrega y pago</h2>
           </div>
-          <button className="icon-button" type="button" aria-label="Cerrar" onClick={onClose}><X size={20} /></button>
+          <button className="btn btn-ghost btn-circle btn-sm" type="button" aria-label="Cerrar" onClick={onClose}><X size={18} /></button>
         </div>
-        <p className="dialog__intro">Ingresa los datos de entrega y de la tarjeta.</p>
-        <form onSubmit={submit} noValidate>
-          <div className="form-section">
-            <h3><MapPin size={16} /> Datos de entrega</h3>
-            <div className="form-grid">
-              <Field label="Nombre completo" name="customerFullName" value={values.customerFullName} onChange={change} error={errors.customerFullName} autoComplete="name" placeholder="Ej. Ana García" required />
+        <p className="mb-5 text-sm text-base-content/70">Indica dónde entregar el pedido y los datos de la tarjeta.</p>
+        <form className="space-y-5" onSubmit={submit} noValidate>
+          <section>
+            <h3 className="font-display mb-3 text-sm font-semibold">Entrega</h3>
+            <div className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
+              <Field label="Nombre completo" name="customerFullName" value={values.customerFullName} onChange={change} error={errors.customerFullName} autoComplete="name" placeholder="Ej. Ana García" wide required />
               <Field label="Correo electrónico" name="customerEmail" value={values.customerEmail} onChange={change} error={errors.customerEmail} type="email" autoComplete="email" placeholder="ana@correo.com" required />
               <Field label="Teléfono" name="customerPhoneNumber" value={values.customerPhoneNumber} onChange={change} error={errors.customerPhoneNumber} type="tel" inputMode="tel" autoComplete="tel" placeholder="300 123 4567" required />
-              <Field label="Dirección" name="deliveryAddress" value={values.deliveryAddress} onChange={change} error={errors.deliveryAddress} autoComplete="street-address" placeholder="Calle 00 # 00 - 00" required />
+              <Field label="Dirección" name="deliveryAddress" value={values.deliveryAddress} onChange={change} error={errors.deliveryAddress} autoComplete="street-address" placeholder="Calle 00 # 00 - 00" wide required />
               <Field label="Ciudad" name="deliveryCity" value={values.deliveryCity} onChange={change} error={errors.deliveryCity} autoComplete="address-level2" placeholder="Bogotá" required />
               <Field label="Departamento" name="deliveryRegion" value={values.deliveryRegion} onChange={change} error={errors.deliveryRegion} autoComplete="address-level1" placeholder="Cundinamarca" required />
             </div>
-          </div>
-          <div className="form-section">
-            <h3><CreditCard size={16} /> Tarjeta de crédito</h3>
-            <div className="form-grid">
-              <div className="field field--wide">
-                <div className="field__label-row"><span className="field__label">Número de tarjeta</span><span className="card-brands"><span className={cardBrand(values.cardNumber) === 'VISA' ? 'card-brand is-detected' : 'card-brand'}>VISA</span><span className={cardBrand(values.cardNumber) === 'MASTERCARD' ? 'card-brand is-detected' : 'card-brand'}>MC</span></span></div>
-                <input className="input input-bordered" name="cardNumber" value={values.cardNumber} onChange={(event) => change('cardNumber', formatCardNumber(event.target.value))} aria-invalid={Boolean(errors.cardNumber)} aria-describedby={errors.cardNumber ? 'cardNumber-error' : undefined} autoComplete="cc-number" inputMode="numeric" placeholder="0000 0000 0000 0000" maxLength={23} required />
-                {errors.cardNumber && <span className="field__error" id="cardNumber-error">{errors.cardNumber}</span>}
+          </section>
+          <section className="card border border-base-300 bg-base-100 shadow-none">
+            <div className="card-body gap-4 p-4 sm:p-5">
+              <h3 className="font-display text-sm font-semibold">Tarjeta de crédito</h3>
+              <div className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
+                <div className="fieldset col-span-full gap-1">
+                  <div className="fieldset-legend flex w-full items-center justify-between p-0 text-xs font-medium text-base-content/80">
+                    <label htmlFor="cardNumber">Número de tarjeta</label>
+                    <div className="flex items-center gap-3" aria-label="Visa y Mastercard">
+                      <span className={`text-base font-extrabold italic tracking-tight ${cardBrand === 'visa' ? 'text-[#1434cb]' : 'text-base-content/30'}`} role="img" aria-label="Visa">VISA</span>
+                      <svg className={cardBrand === 'mastercard' ? 'h-5 w-7 opacity-100' : 'h-5 w-7 opacity-35'} role="img" aria-label="Mastercard" viewBox="0 0 40 26">
+                      <circle cx="15" cy="13" r="11" fill="#eb001b" />
+                      <circle cx="25" cy="13" r="11" fill="#f79e1b" fillOpacity=".92" />
+                      </svg>
+                    </div>
+                  </div>
+                  <input className={`input input-bordered w-full ${errors.cardNumber ? 'input-error' : ''}`} id="cardNumber" name="cardNumber" value={values.cardNumber} onChange={(event) => change('cardNumber', formatCardNumber(event.target.value))} aria-invalid={Boolean(errors.cardNumber)} aria-describedby={errors.cardNumber ? 'cardNumber-error' : undefined} autoComplete="cc-number" inputMode="numeric" placeholder="0000 0000 0000 0000" maxLength={23} required />
+                  {errors.cardNumber && <span className="text-xs text-error" id="cardNumber-error">{errors.cardNumber}</span>}
+                  {cardBrand && <span className="text-xs text-base-content/60" aria-live="polite">{cardBrand === 'visa' ? 'Visa' : 'Mastercard'} detectada</span>}
+                </div>
+                <Field label="Nombre en la tarjeta" name="cardHolder" value={values.cardHolder} onChange={change} error={errors.cardHolder} autoComplete="cc-name" placeholder="Como aparece en la tarjeta" wide required />
+                <div className="col-span-full grid grid-cols-3 gap-2">
+                  <Field label="Mes" name="expMonth" value={values.expMonth || ''} onChange={(name, value) => change(name, value ? Number(value) : 0)} error={errors.expMonth} inputMode="numeric" placeholder="MM" maxLength={2} autoComplete="cc-exp-month" required />
+                  <Field label="Año" name="expYear" value={values.expYear || ''} onChange={(name, value) => change(name, value ? Number(value) : 0)} error={errors.expYear} inputMode="numeric" placeholder="AA" maxLength={2} autoComplete="cc-exp-year" required />
+                  <Field label="CVC" name="cvc" value={values.cvc} onChange={(name, value) => change(name, digitsOnly(String(value)).slice(0, 4))} error={errors.cvc} inputMode="numeric" placeholder="123" maxLength={4} autoComplete="cc-csc" required />
+                </div>
               </div>
-              <Field label="Nombre en la tarjeta" name="cardHolder" value={values.cardHolder} onChange={change} error={errors.cardHolder} autoComplete="cc-name" placeholder="Como aparece en la tarjeta" required />
-              <div className="form-grid form-grid--nested">
-                <Field label="Mes" name="expMonth" value={values.expMonth || ''} onChange={(name, value) => change(name, value ? Number(value) : 0)} error={errors.expMonth} inputMode="numeric" placeholder="MM" maxLength={2} autoComplete="cc-exp-month" required />
-                <Field label="Año" name="expYear" value={values.expYear || ''} onChange={(name, value) => change(name, value ? Number(value) : 0)} error={errors.expYear} inputMode="numeric" placeholder="AA" maxLength={2} autoComplete="cc-exp-year" required />
-              </div>
-              <Field label="CVC" name="cvc" value={values.cvc} onChange={(name, value) => change(name, digitsOnly(String(value)).slice(0, 4))} error={errors.cvc} inputMode="numeric" placeholder="123" maxLength={4} autoComplete="cc-csc" required />
             </div>
+          </section>
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-between">
+            <button className="btn btn-ghost" type="button" onClick={onClose}><ArrowLeft size={16} /> Volver</button>
+            <button className="btn btn-primary !text-white hover:!bg-[#285643] active:!bg-[#214634]" type="submit">Revisar pedido <ArrowRight size={16} /></button>
           </div>
-          <div className="dialog__actions">
-            <button className="button btn button--quiet" type="button" onClick={onClose}><ArrowLeft size={16} /> Volver</button>
-            <button className="button btn btn-primary button--primary" type="submit">Revisar pedido <ArrowRight size={16} /></button>
-          </div>
-          <p className="secure-note"><LockKeyhole size={13} /> Tus datos de tarjeta se usan solo para este pago y no se guardan.</p>
+          <p className="flex items-center justify-center gap-2 text-center text-xs text-base-content/60"><LockKeyhole size={13} /> Tus datos de tarjeta se usan solo para este pago y no se guardan.</p>
         </form>
       </section>
     </div>
@@ -206,53 +213,69 @@ function SummaryPanel({ product, onBack, onPay, busy, error }: {
   error: string | null
 }) {
   return (
-    <div className="summary-backdrop">
-      <section className="summary-card" aria-labelledby="summary-title">
-        <div className="summary-card__header">
-          <div><p className="eyebrow">PASO 3 DE 3</p><h2 id="summary-title">Resumen de compra</h2></div>
+    <div className="modal modal-open items-end p-0 sm:items-stretch sm:justify-end">
+      <section className="modal-box max-h-[95dvh] w-full max-w-md overflow-y-auto rounded-t-2xl bg-base-100 p-5 sm:my-0 sm:h-full sm:max-h-none sm:rounded-none sm:p-7" aria-labelledby="summary-title">
+        <div className="mb-5 border-b border-base-300 pb-4">
+          <p className="mb-1 text-xs font-medium text-base-content/60">PASO 3 DE 3</p>
+          <h2 className="font-display text-xl font-semibold tracking-tight" id="summary-title">Resumen de compra</h2>
         </div>
-        <div className="summary-product">
-          <img src={product.imageUrl} alt="" />
-          <div><p className="summary-product__name">{product.name}</p><span>1 unidad</span></div>
-          <strong>{formatCop(product.price)}</strong>
+        <div className="grid grid-cols-[56px_1fr_auto] items-center gap-3 border-b border-base-300 py-4">
+          <img className="h-14 w-14 object-cover" src={product.imageUrl} alt="" />
+          <div><p className="mb-1 text-sm font-semibold">{product.name}</p><span className="text-xs text-base-content/60">1 unidad</span></div>
+          <strong className="text-sm">{formatCop(product.price)}</strong>
         </div>
-        <div className="summary-lines">
-          <div><span>Producto</span><span>{formatCop(product.price)}</span></div>
-          <div><span>Tarifa de servicio</span><span>{formatCop(baseFee)}</span></div>
-          <div><span><Truck size={15} /> Envío</span><span>{formatCop(deliveryFee)}</span></div>
+        <div className="space-y-3 py-5 text-sm text-base-content/75">
+          <div className="flex justify-between gap-3"><span>Producto</span><span>{formatCop(product.price)}</span></div>
+          <div className="flex justify-between gap-3"><span>Tarifa de servicio</span><span>{formatCop(baseFee)}</span></div>
+          <div className="flex justify-between gap-3"><span>Envío</span><span>{formatCop(deliveryFee)}</span></div>
         </div>
-        <div className="summary-total"><span>Total a pagar</span><strong>{formatCop(product.price + baseFee + deliveryFee)}</strong></div>
-        {error && <div className="alert alert-error alert--error" role="alert">{error}</div>}
-        <button className="button btn btn-primary button--primary button--full" type="button" onClick={onPay} disabled={busy}>
+        <div className="flex justify-between border-t border-base-300 py-4 text-sm font-semibold"><span>Total a pagar</span><strong className="text-lg">{formatCop(product.price + baseFee + deliveryFee)}</strong></div>
+        {error && <div className="alert alert-error mt-2 text-sm" role="alert">{error}</div>}
+        <button className="btn btn-primary !text-white hover:!bg-[#285643] active:!bg-[#214634] mt-4 w-full" type="button" onClick={onPay} disabled={busy}>
           {busy ? <><span className="spinner" /> Procesando pago...</> : <>Pagar {formatCop(product.price + baseFee + deliveryFee)} <ArrowRight size={17} /></>}
         </button>
-        <p className="secure-note"><LockKeyhole size={13} /> No cierres esta ventana mientras confirmamos tu pago.</p>
-        <button className="summary-back" type="button" onClick={onBack} disabled={busy}><ArrowLeft size={15} /> Volver a mis datos</button>
+        <button className="btn btn-ghost mt-2 w-full" type="button" onClick={onBack} disabled={busy}><ArrowLeft size={15} /> Volver a mis datos</button>
       </section>
     </div>
   )
 }
 
-function PaymentResult({ status, reference, onContinue }: { status: string; reference: string; onContinue: () => void }) {
+function PaymentResult({ transaction, product, onContinue }: { transaction: Transaction; product?: Product; onContinue: () => void }) {
+  const { status, reference, amount, baseFee, deliveryFee } = transaction
   const isApproved = status === 'APPROVED'
   const isPending = status === 'PENDING' || status === 'UNKNOWN'
-  const heading = isApproved ? '¡Tu pedido está en camino!' : isPending ? 'Estamos confirmando tu pago' : 'No pudimos completar el pago'
+  const heading = isApproved ? '¡Gracias por tu compra!' : isPending ? 'Pago en proceso' : 'Pago no aprobado'
   const detail = isApproved
-    ? 'El pago fue aprobado y estamos preparando tu producto para el envío.'
+    ? 'El pago fue aprobado. Guarda la referencia para cualquier consulta.'
     : isPending
-      ? 'El pago aún aparece pendiente. Puedes consultar el estado más tarde con tu referencia.'
-      : 'La transacción no fue aprobada. Puedes volver a la tienda e intentarlo nuevamente.'
+      ? 'El banco aún está confirmando la transacción. Conserva la referencia para consultar el estado.'
+      : 'La transacción fue rechazada. Puedes volver al catálogo e intentarlo de nuevo.'
+  const statusLabel = isApproved ? 'Aprobado' : isPending ? 'Pendiente' : 'Rechazado'
+  const statusColor = isApproved ? 'bg-emerald-600' : isPending ? 'bg-amber-500' : 'bg-rose-600'
 
   return (
-    <main className="result-wrap">
-      <div className={isApproved ? 'result-icon result-icon--success' : isPending ? 'result-icon result-icon--pending' : 'result-icon result-icon--failed'}>
-        {isApproved ? <PackageCheck size={34} /> : isPending ? <ShieldCheck size={34} /> : <X size={34} />}
+    <main className="mx-auto flex w-full max-w-lg flex-1 flex-col justify-center px-3 py-8 sm:px-0">
+      <div className="mb-6">
+        <p className="mb-3 flex items-center gap-2 text-sm font-medium text-base-content/70"><span className={`h-2.5 w-2.5 rounded-full ${statusColor}`} />{statusLabel}</p>
+        <h1 className="font-display text-2xl font-semibold tracking-tight sm:text-3xl">{heading}</h1>
+        <p className="mt-2 text-sm leading-6 text-base-content/70">{detail}</p>
       </div>
-      <p className="eyebrow">ESTADO DE TU PEDIDO</p>
-      <h1>{heading}</h1>
-      <p className="result-copy">{detail}</p>
-      <div className="reference-card"><span>Número de transacción</span><strong>{reference}</strong><span className="reference-status">{status}</span></div>
-      <button className="button btn btn-primary button--primary" type="button" onClick={onContinue}><ShoppingBag size={17} /> Volver a la tienda</button>
+      <section className="card border border-base-300 bg-base-100 shadow-none" aria-label="Detalle del pago">
+        <div className="card-body gap-4 p-5">
+          <h2 className="font-display text-sm font-semibold">Detalle del pedido</h2>
+          <div className="space-y-3 text-sm">
+            <div className="flex justify-between gap-4"><span className="text-base-content/70">{product?.name ?? 'Producto'}</span><span>{formatCop(amount)}</span></div>
+            <div className="flex justify-between gap-4"><span className="text-base-content/70">Tarifa de servicio</span><span>{formatCop(baseFee)}</span></div>
+            <div className="flex justify-between gap-4"><span className="text-base-content/70">Envío</span><span>{formatCop(deliveryFee)}</span></div>
+          </div>
+          <div className="flex justify-between border-t border-base-300 pt-4 text-sm font-semibold"><span>Total</span><span>{formatCop(amount + baseFee + deliveryFee)}</span></div>
+          <div className="border-t border-base-300 pt-4">
+            <p className="mb-1 text-xs text-base-content/60">Referencia</p>
+            <p className="break-all font-mono text-sm">{reference || transaction.id}</p>
+          </div>
+        </div>
+      </section>
+      <button className="btn btn-primary !text-white hover:!bg-[#285643] active:!bg-[#214634] mt-5 w-full" type="button" onClick={onContinue}><ShoppingBag size={17} /> Volver a la tienda</button>
     </main>
   )
 }
@@ -312,7 +335,7 @@ export function CheckoutExperience() {
   }
 
   if (step === 'result' && transaction) {
-    return <div className="app-shell"><Header /><Stepper step={step} /><PaymentResult status={transaction.status} reference={transaction.reference || transaction.id} onContinue={returnToCatalog} /></div>
+    return <div className="app-shell"><Header /><Stepper step={step} /><PaymentResult transaction={transaction} product={selectedProduct} onContinue={returnToCatalog} /></div>
   }
 
   return (
@@ -328,7 +351,7 @@ export function CheckoutExperience() {
           {loadingProducts && products.length === 0 ? (
             <div className="loading-state"><span className="spinner spinner--dark" /><span>Cargando productos</span></div>
           ) : error && products.length === 0 ? (
-            <div className="empty-state"><p>{error}</p><button className="button button--outline" type="button" onClick={() => void dispatch(loadProducts())}>Intentar de nuevo</button></div>
+            <div className="empty-state"><p>{error}</p><button className="btn btn-outline" type="button" onClick={() => void dispatch(loadProducts())}>Intentar de nuevo</button></div>
           ) : products.length === 0 ? (
             <div className="empty-state"><p>Por ahora no hay productos disponibles.</p></div>
           ) : (
