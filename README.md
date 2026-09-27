@@ -15,9 +15,15 @@ npm install
 npm run dev
 ```
 
+En PowerShell, copiar la plantilla local:
+
+```powershell
+Copy-Item .env.example .env.local
+```
+
 Vite muestra la URL local al iniciar (por defecto `http://localhost:5173`). La aplicación usa `http://localhost:3000` como API base cuando no se configura otra URL.
 
-Para apuntar a una instancia diferente, crear `.env.local`:
+Edita `VITE_API_URL` en `.env.local` para apuntar a otra instancia:
 
 ```dotenv
 VITE_API_URL=http://localhost:3000
